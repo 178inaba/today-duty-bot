@@ -42,7 +42,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Post("/events-endpoint", h.HelloWorld)
+	r.Post("/events", h.ReceiveEvent)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -85,7 +85,7 @@ func NewHandler(slackClient *slack.Client, slackSigningSecret string) *Handler {
 	}
 }
 
-func (h *Handler) HelloWorld(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
