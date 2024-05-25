@@ -21,8 +21,8 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 
@@ -30,10 +30,8 @@ import (
 	"github.com/slack-go/slack/slackevents"
 )
 
-// You more than likely want your "Bot User OAuth Access Token" which starts with "xoxb-"
-var api = slack.New(os.Getenv("SLACK_TOKEN"))
-
 func main() {
+	api := slack.New(os.Getenv("SLACK_TOKEN"))
 	signingSecret := os.Getenv("SLACK_SIGNING_SECRET")
 
 	http.HandleFunc("/events-endpoint", func(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +53,7 @@ func main() {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+
 		eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -79,6 +78,14 @@ func main() {
 			}
 		}
 	})
-	fmt.Println("[INFO] Server listening")
-	http.ListenAndServe(":8080", nil)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("Listening on port %s.", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("End listen and serve: %v.", err)
+	}
 }
