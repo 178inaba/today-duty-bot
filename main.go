@@ -21,7 +21,7 @@ func main() {
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
-	r.Get("/events-endpoint", h.HelloWorld)
+	r.Post("/events-endpoint", h.HelloWorld)
 
 	port := os.Getenv("PORT")
 	if port == "" {
