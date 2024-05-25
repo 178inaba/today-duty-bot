@@ -34,10 +34,10 @@ func main() {
 		log.Fatalf("Ping database: %v.", err)
 	}
 
-	api := slack.New(os.Getenv("SLACK_TOKEN"))
-	signingSecret := os.Getenv("SLACK_SIGNING_SECRET")
-
-	h := NewHandler(api, signingSecret)
+	h := NewHandler(
+		slack.New(os.Getenv("SLACK_TOKEN")),
+		os.Getenv("SLACK_SIGNING_SECRET"),
+	)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
