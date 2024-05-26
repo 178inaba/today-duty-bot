@@ -118,7 +118,29 @@ func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 		switch e := eventsAPIEvent.InnerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
 			if strings.Contains(e.Text, "skip") {
-				h.slackClient.PostMessageContext(ctx, e.Channel, slack.MsgOptionText("Skip duty", false))
+				// TODO Error handling.
+				latest, err := h.dutyHistoryRepo.GetLatestDutyMember(ctx)
+				if err != nil {
+					log.Printf("Get latest duty member: %v.", err)
+				}
+
+				h.dutyHistoryRepo.Skip(ctx, latest.ID)
+
+				member, err := h.memberRepo.GetNext(ctx, latest.MemberID)
+				if err != nil {
+					log.Printf("Get members greater than: %v.", err)
+				}
+				if member == nil {
+					m, err := h.memberRepo.GetNext(ctx, 0)
+					if err != nil {
+						log.Printf("Get members greater than: %v.", err)
+					}
+					member = m
+				}
+
+				h.dutyHistoryRepo.Create(ctx, member.ID, time.Now().In(jst))
+
+				h.slackClient.PostMessageContext(ctx, e.Channel, slack.MsgOptionText(fmt.Sprintf("<@%s> You're today's duty.", member.SlackID), false))
 			} else {
 				dh, err := h.dutyHistoryRepo.GetLatestDutyMember(ctx)
 				if err != nil {
