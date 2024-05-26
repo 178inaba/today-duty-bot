@@ -92,7 +92,7 @@ func (r *DutyHistoryRepository) GetSkipped(ctx context.Context) (*entity.DutyHis
 		Select(
 			"id",
 			"member_id",
-			"assign_on",
+			"assigned_on",
 			"is_skip",
 		).
 		From("duty_histories").
@@ -123,7 +123,7 @@ func (r *DutyHistoryRepository) GetLatestDutyMember(ctx context.Context) (*entit
 		Select(
 			"id",
 			"member_id",
-			"assign_on",
+			"assigned_on",
 			"is_skip",
 		).
 		From("duty_histories").
