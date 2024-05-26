@@ -109,40 +109,39 @@ func (h *handler) receiveEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validating a request.
 	if err := validateRequest(h.slackSigningSecret, r.Header, bodyBytes); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusUnauthorized)
 		log.Printf("Validate request: %v.", err)
 		return
 	}
 
-	log.Printf("Receive event: %s.", string(bodyBytes))
-
-	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(bodyBytes), slackevents.OptionNoVerifyToken())
+	eventsAPIEvent, err := slackevents.ParseEvent(bodyBytes, slackevents.OptionNoVerifyToken())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		log.Printf("Parse event: %v.", err)
 		return
 	}
 
-	if eventsAPIEvent.Type == slackevents.URLVerification {
-		var r *slackevents.ChallengeResponse
-		err := json.Unmarshal(bodyBytes, &r)
-		if err != nil {
+	switch eventsAPIEvent.Type {
+	case slackevents.URLVerification:
+		var r slackevents.ChallengeResponse
+		if err := json.Unmarshal(bodyBytes, &r); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			log.Printf("Unmarshal challenge response: %v.", err)
 			return
 		}
-		w.Header().Set("Content-Type", "text")
+
+		w.Header().Set("Content-type", "text/plain")
 		w.Write([]byte(r.Challenge))
-	}
-	if eventsAPIEvent.Type == slackevents.CallbackEvent {
-		innerEvent := eventsAPIEvent.InnerEvent
-		switch ev := innerEvent.Data.(type) {
+	case slackevents.CallbackEvent:
+		switch e := eventsAPIEvent.InnerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			h.slackClient.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
+			h.slackClient.PostMessage(e.Channel, slack.MsgOptionText(e.Text+" -> Yes, hello.", false))
 		}
 	}
 }
 
-// Validating a request.
 func validateRequest(signingSecret string, header http.Header, body []byte) error {
 	sv, err := slack.NewSecretsVerifier(header, signingSecret)
 	if err != nil {
