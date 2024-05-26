@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/178inaba/today-duty-bot/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-sql-driver/mysql"
@@ -34,7 +35,12 @@ func main() {
 		log.Fatalf("Ping database: %v.", err)
 	}
 
-	h := NewHandler(
+	memberRepo := repository.NewMemberRepository(db)
+	dutyHistoryRepo := repository.NewDutyHistoryRepository(db)
+
+	h := newHandler(
+		memberRepo,
+		dutyHistoryRepo,
 		slack.New(os.Getenv("SLACK_TOKEN")),
 		os.Getenv("SLACK_SIGNING_SECRET"),
 	)
@@ -42,7 +48,7 @@ func main() {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Post("/events", h.ReceiveEvent)
+	r.Post("/events", h.receiveEvent)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -73,39 +79,45 @@ func openSqlxDB(user, passwd, net, addr, dbName string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-type Handler struct {
+type handler struct {
+	memberRepo         *repository.MemberRepository
+	dutyHistoryRepo    *repository.DutyHistoryRepository
 	slackClient        *slack.Client
 	slackSigningSecret string
 }
 
-func NewHandler(slackClient *slack.Client, slackSigningSecret string) *Handler {
-	return &Handler{
+func newHandler(
+	memberRepo *repository.MemberRepository,
+	dutyHistoryRepo *repository.DutyHistoryRepository,
+	slackClient *slack.Client,
+	slackSigningSecret string,
+) *handler {
+	return &handler{
+		memberRepo:         memberRepo,
+		dutyHistoryRepo:    dutyHistoryRepo,
 		slackClient:        slackClient,
 		slackSigningSecret: slackSigningSecret,
 	}
 }
 
-func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
+func (h *handler) receiveEvent(w http.ResponseWriter, r *http.Request) {
+	// Read body.
+	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	sv, err := slack.NewSecretsVerifier(r.Header, h.slackSigningSecret)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	if _, err := sv.Write(body); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	if err := sv.Ensure(); err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
+		log.Printf("Read body: %v.", err)
 		return
 	}
 
-	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(body), slackevents.OptionNoVerifyToken())
+	if err := validateRequest(h.slackSigningSecret, r.Header, bodyBytes); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		log.Printf("Validate request: %v.", err)
+		return
+	}
+
+	log.Printf("Receive event: %s.", string(bodyBytes))
+
+	eventsAPIEvent, err := slackevents.ParseEvent(json.RawMessage(bodyBytes), slackevents.OptionNoVerifyToken())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -113,7 +125,7 @@ func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 
 	if eventsAPIEvent.Type == slackevents.URLVerification {
 		var r *slackevents.ChallengeResponse
-		err := json.Unmarshal([]byte(body), &r)
+		err := json.Unmarshal(bodyBytes, &r)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -128,4 +140,20 @@ func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {
 			h.slackClient.PostMessage(ev.Channel, slack.MsgOptionText("Yes, hello.", false))
 		}
 	}
+}
+
+// Validating a request.
+func validateRequest(signingSecret string, header http.Header, body []byte) error {
+	sv, err := slack.NewSecretsVerifier(header, signingSecret)
+	if err != nil {
+		return fmt.Errorf("new secret verifier: %w", err)
+	}
+	if _, err := sv.Write(body); err != nil {
+		return fmt.Errorf("write body: %w", err)
+	}
+	if err := sv.Ensure(); err != nil {
+		return fmt.Errorf("ensure secret: %w", err)
+	}
+
+	return nil
 }
