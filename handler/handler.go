@@ -7,11 +7,14 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/178inaba/today-duty-bot/repository"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
+
+var jst = time.FixedZone("Asia/Tokyo", 9*60*60)
 
 type Handler struct {
 	memberRepo         *repository.MemberRepository
@@ -32,6 +35,47 @@ func NewHandler(
 		slackClient:        slackClient,
 		slackSigningSecret: slackSigningSecret,
 	}
+}
+
+// TODO Error handling.
+func (h *Handler) CreateDuty(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var memberID int
+	latest, err := h.dutyHistoryRepo.GetLatestDutyMember(ctx)
+	if err != nil {
+		log.Printf("Get latest duty member: %v.", err)
+	}
+	if latest != nil {
+		if latest.AssignedOn.YearDay() == time.Now().In(jst).YearDay() {
+			return
+		}
+		memberID = latest.MemberID
+	}
+
+	skipped, err := h.dutyHistoryRepo.GetSkipped(ctx)
+	if err != nil {
+		log.Printf("Get skipped: %v.", err)
+	}
+	if skipped != nil {
+		h.dutyHistoryRepo.Delete(ctx, skipped.MemberID)
+		h.dutyHistoryRepo.Create(ctx, skipped.MemberID, time.Now().In(jst))
+		return
+	}
+
+	member, err := h.memberRepo.GetNext(ctx, memberID)
+	if err != nil {
+		log.Printf("Get members greater than: %v.", err)
+	}
+	if member == nil {
+		m, err := h.memberRepo.GetNext(ctx, 0)
+		if err != nil {
+			log.Printf("Get members greater than: %v.", err)
+		}
+		member = m
+	}
+
+	h.dutyHistoryRepo.Create(ctx, member.ID, time.Now().In(jst))
 }
 
 func (h *Handler) ReceiveEvent(w http.ResponseWriter, r *http.Request) {

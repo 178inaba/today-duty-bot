@@ -30,7 +30,7 @@ func (r *DutyHistoryRepository) Create(ctx context.Context, memberID int, assign
 		).
 		Values(
 			memberID,
-			assignedOn,
+			assignedOn.Format(time.DateOnly),
 			false,
 		).
 		ToSql()
