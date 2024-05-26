@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/178inaba/today-duty-bot/repository"
 	"github.com/go-chi/chi/v5"
@@ -101,6 +102,8 @@ func newHandler(
 }
 
 func (h *handler) receiveEvent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
 	// Read body.
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -137,7 +140,25 @@ func (h *handler) receiveEvent(w http.ResponseWriter, r *http.Request) {
 	case slackevents.CallbackEvent:
 		switch e := eventsAPIEvent.InnerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			h.slackClient.PostMessage(e.Channel, slack.MsgOptionText(e.Text+" -> Yes, hello.", false))
+			if strings.Contains(e.Text, "skip") {
+				h.slackClient.PostMessageContext(ctx, e.Channel, slack.MsgOptionText("Skip duty", false))
+			} else {
+				dh, err := h.dutyHistoryRepo.GetLatestDutyMember(ctx)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					log.Printf("Get latest duty member: %v.", err)
+					return
+				}
+
+				m, err := h.memberRepo.Get(ctx, dh.MemberID)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					log.Printf("Get member: %v.", err)
+					return
+				}
+
+				h.slackClient.PostMessageContext(ctx, e.Channel, slack.MsgOptionText(fmt.Sprintf("<@%s> You're today's duty.", m.SlackID), false))
+			}
 		}
 	}
 }
